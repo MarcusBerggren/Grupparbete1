@@ -1,5 +1,5 @@
 console.log("JavaScript Hoppas jag fungerar!");
 const button = document.querySelector("#myButton"); 
 button.addEventListener("click", () => { 
-coonsole.log("Button clicked!"); 
+coonsole.log("Buttons clicked!"); 
 });
