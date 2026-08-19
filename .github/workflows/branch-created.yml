@@ -13,8 +13,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Show branch information
+      - name: Get issue number from branch
+        id: issue
         run: |
-          echo "Branch: ${{ github.ref }}"
-          echo "Branch name: ${{ github.ref_name }}"
-          echo "Created by: ${{ github.actor }}"
+          BRANCH="${{ github.ref_name }}"
+
+          echo "Branch: $BRANCH"
+
+          if [[ "$BRANCH" =~ ^feature/([0-9]+)- ]]; then
+            ISSUE_NUMBER="${BASH_REMATCH[1]}"
+            echo "Issue number: $ISSUE_NUMBER"
+            echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "Branch name does not contain an issue number."
+            exit 1
+          fi
