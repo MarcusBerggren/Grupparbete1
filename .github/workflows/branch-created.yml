@@ -72,6 +72,17 @@ jobs:
             --repo "$REPO" \
             --add-assignee "$ACTOR"
 
+      - name: Test project token
+        env:
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          if [ -z "$PROJECT_TOKEN" ]; then
+            echo "ERROR: PROJECT_TOKEN is empty or unavailable."
+            exit 1
+          fi
+
+          echo "PROJECT_TOKEN is available."
+
       - name: Move issue to In Progress
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
@@ -224,6 +235,8 @@ jobs:
   # PR opened
   #       ↓
   # Status = Test
+  #       ↓
+  # PR itself removed from Project
   # ==========================================================
 
   pull-request-opened:
@@ -238,13 +251,21 @@ jobs:
 
     steps:
 
-      - name: Move issue to Test
+      - name: Move issue to Test and remove PR from project
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
+
+          echo "Branch: $BRANCH"
+          echo "PR: #$PR_NUMBER"
+
+          # --------------------------------------------------
+          # Find issue number from branch name
+          # --------------------------------------------------
 
           if [[ "$BRANCH" =~ ^feature/([0-9]+)- ]]; then
             ISSUE_NUMBER="${BASH_REMATCH[1]}"
@@ -254,6 +275,10 @@ jobs:
           fi
 
           echo "Issue: #$ISSUE_NUMBER"
+
+          # --------------------------------------------------
+          # Find Project and Status field
+          # --------------------------------------------------
 
           QUERY='
           query($login:String!, $number:Int!) {
@@ -300,6 +325,29 @@ jobs:
               | .id
             ')
 
+          if [ "$PROJECT_ID" = "null" ] || [ -z "$PROJECT_ID" ]; then
+            echo "ERROR: Project not found."
+            exit 1
+          fi
+
+          if [ "$STATUS_FIELD_ID" = "null" ] || [ -z "$STATUS_FIELD_ID" ]; then
+            echo "ERROR: Status field not found."
+            exit 1
+          fi
+
+          if [ "$TEST_ID" = "null" ] || [ -z "$TEST_ID" ]; then
+            echo "ERROR: 'Test' option not found."
+            exit 1
+          fi
+
+          echo "Project ID: $PROJECT_ID"
+          echo "Status field: $STATUS_FIELD_ID"
+          echo "Test option: $TEST_ID"
+
+          # --------------------------------------------------
+          # Find Issue's Project item
+          # --------------------------------------------------
+
           ITEM_QUERY='
           query($owner:String!, $repo:String!, $number:Int!) {
             repository(owner:$owner, name:$repo) {
@@ -337,6 +385,12 @@ jobs:
             exit 1
           fi
 
+          echo "Issue Project item: $ITEM_ID"
+
+          # --------------------------------------------------
+          # Move Issue to Test
+          # --------------------------------------------------
+
           MUTATION='
           mutation(
             $project:ID!,
@@ -368,6 +422,73 @@ jobs:
             -f option="$TEST_ID"
 
           echo "SUCCESS: Issue moved to Test."
+
+          # --------------------------------------------------
+          # Find PR's Project item
+          # --------------------------------------------------
+
+          PR_QUERY='
+          query($owner:String!, $repo:String!, $pr:Int!) {
+            repository(owner:$owner, name:$repo) {
+              pullRequest(number:$pr) {
+                projectItems(first:100) {
+                  nodes {
+                    id
+                    project {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          PR_ITEMS=$(gh api graphql \
+            -f query="$PR_QUERY" \
+            -f owner="$REPO_OWNER" \
+            -f repo="$REPO_NAME" \
+            -F pr="$PR_NUMBER")
+
+          PR_ITEM_ID=$(echo "$PR_ITEMS" |
+            jq -r \
+            --arg PROJECT_ID "$PROJECT_ID" \
+            '
+              .data.repository.pullRequest.projectItems.nodes[]
+              | select(.project.id == $PROJECT_ID)
+              | .id
+            ' |
+            head -n 1)
+
+          # --------------------------------------------------
+          # Remove PR from Project
+          # --------------------------------------------------
+
+          if [ -n "$PR_ITEM_ID" ] && [ "$PR_ITEM_ID" != "null" ]; then
+
+            echo "Removing PR Project item: $PR_ITEM_ID"
+
+            DELETE_MUTATION='
+            mutation($project:ID!, $item:ID!) {
+              deleteProjectV2Item(
+                input: {
+                  projectId:$project
+                  itemId:$item
+                }
+              ) {
+                deletedItemId
+              }
+            }'
+
+            gh api graphql \
+              -f query="$DELETE_MUTATION" \
+              -f project="$PROJECT_ID" \
+              -f item="$PR_ITEM_ID"
+
+            echo "SUCCESS: PR removed from Project."
+
+          else
+            echo "PR is not a Project item. Nothing to remove."
+          fi
 
 
   # ==========================================================
