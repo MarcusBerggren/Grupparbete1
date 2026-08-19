@@ -28,3 +28,16 @@ jobs:
             echo "Branch name does not contain an issue number."
             exit 1
           fi
+
+      - name: Assign issue to branch creator
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Assigning issue #$ISSUE_NUMBER to $ACTOR"
+
+          gh issue edit "$ISSUE_NUMBER" \
+            --repo "$REPO" \
+            --add-assignee "$ACTOR"
