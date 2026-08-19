@@ -1,3 +1,5 @@
+
+/* Hårdkodad array med uppgifter för att testa Klarfunktionen */
 const tasks = [
     { id: 1, name: "Köpa mjölk", completed: false },
     { id: 2, name: "Gå ut med hunden", completed: false },
