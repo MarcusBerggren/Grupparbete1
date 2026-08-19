@@ -18,12 +18,17 @@ tasks.forEach(item => {
     /* ---------------------------------------------------------- */
 
     /* ---------------------------------------------------------- */
-    /* Skapar en knapp där man kan markera uppgiften som klar på varje rad. */
-    const button = document.createElement("button");
-    button.textContent = "Klar";
+    /* Skapar Klar-knapp på varje rad. */
+    const completeButton = document.createElement("button");
+    completeButton.textContent = "Klar";
 
-    /* Lägger till knappen i listan */
-    li.appendChild(button);
+    /* Här kommer Delete-knapp på varje rad. */
+
+
+    /* Lägger till knapparna i listan */
+    li.appendChild(completeButton);
+    /* Deleteknappen här */
+
 
     /* Lägger till listan i HTML: en */
     document.querySelector("#taskList").appendChild(li);
@@ -33,11 +38,11 @@ tasks.forEach(item => {
 
     /* Lyssnare som känner av vilken knapp som tryckts på och skriver ut i 
        konsolen vilken uppgift som är klar. */
-    button.addEventListener("click", function () {
-        const taskID = parseInt(li.getAttribute("data-id"));
+
+    completeButton.addEventListener("click", function () {
 
         /* Skriver ut vilket ID som är klart */
-        console.log("Uppgiften med ID " + taskID + " är klar nu!");
+        console.log("Uppgiften med ID " + item.id + " är klar nu!");
         /* Ändrar completed till true för rätt ID*/
         item.completed = true;
         /* Skriver ut objektet från arrayen i konsolen */
@@ -50,12 +55,4 @@ tasks.forEach(item => {
 
 
 
-
-// 1. Hämta id från knappen
-
-// 2. Gör om det till ett number
-
-// 3. Hitta rätt objekt i arrayen
-
-// 4. Ändra completed till true
 
