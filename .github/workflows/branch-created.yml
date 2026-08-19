@@ -1,23 +1,53 @@
-name: Branch created
+name: Project workflow
 
 on:
   create:
 
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - closed
+
+  pull_request_review:
+    types:
+      - submitted
+
 permissions:
   contents: read
   issues: write
+  pull-requests: read
+
+env:
+  PROJECT_OWNER: MarcusBerggren
+  PROJECT_NUMBER: 1
 
 jobs:
+
+  # ==========================================================
+  # 1. BRANCH CREATED
+  #
+  # feature/25-login
+  #       ↓
+  # Issue #25
+  #       ↓
+  # Assignee = branch creator
+  #       ↓
+  # Status = In Progress
+  # ==========================================================
+
   branch-created:
-    if: github.ref_type == 'branch'
+    if: github.event_name == 'create' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get issue number from branch
-        id: issue
-        run: |
-          BRANCH="${{ github.ref_name }}"
 
+      - name: Get issue number
+        id: issue
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
           echo "Branch: $BRANCH"
 
           if [[ "$BRANCH" =~ ^feature/([0-9]+)- ]]; then
@@ -25,7 +55,7 @@ jobs:
             echo "Issue number: $ISSUE_NUMBER"
             echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
           else
-            echo "Branch name does not contain an issue number."
+            echo "Branch does not follow feature/<issue>-<description>"
             exit 1
           fi
 
@@ -36,8 +66,601 @@ jobs:
           ACTOR: ${{ github.actor }}
           REPO: ${{ github.repository }}
         run: |
-          echo "Assigning issue #$ISSUE_NUMBER to $ACTOR"
+          echo "Assigning #$ISSUE_NUMBER to $ACTOR"
 
           gh issue edit "$ISSUE_NUMBER" \
             --repo "$REPO" \
             --add-assignee "$ACTOR"
+
+      - name: Move issue to In Progress
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+
+          echo "Looking up project..."
+
+          QUERY='
+          query($login:String!, $number:Int!) {
+            user(login:$login) {
+              projectV2(number:$number) {
+                id
+                fields(first:100) {
+                  nodes {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      name
+                      options {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          RESULT=$(gh api graphql \
+            -f query="$QUERY" \
+            -f login="$PROJECT_OWNER" \
+            -F number="$PROJECT_NUMBER")
+
+          PROJECT_ID=$(echo "$RESULT" |
+            jq -r '.data.user.projectV2.id')
+
+          STATUS_FIELD_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Status")
+              | .id
+            ')
+
+          IN_PROGRESS_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Status")
+              | .options[]
+              | select(.name == "In Progress")
+              | .id
+            ')
+
+          if [ "$PROJECT_ID" = "null" ] || [ -z "$PROJECT_ID" ]; then
+            echo "ERROR: Project not found."
+            exit 1
+          fi
+
+          if [ "$STATUS_FIELD_ID" = "null" ] || [ -z "$STATUS_FIELD_ID" ]; then
+            echo "ERROR: Status field not found."
+            exit 1
+          fi
+
+          if [ "$IN_PROGRESS_ID" = "null" ] || [ -z "$IN_PROGRESS_ID" ]; then
+            echo "ERROR: 'In Progress' option not found."
+            exit 1
+          fi
+
+          echo "Project: $PROJECT_ID"
+          echo "Status field: $STATUS_FIELD_ID"
+          echo "In Progress: $IN_PROGRESS_ID"
+
+          ITEM_QUERY='
+          query($owner:String!, $repo:String!, $number:Int!) {
+            repository(owner:$owner, name:$repo) {
+              issue(number:$number) {
+                projectItems(first:100) {
+                  nodes {
+                    id
+                    project {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          ITEMS=$(gh api graphql \
+            -f query="$ITEM_QUERY" \
+            -f owner="$REPO_OWNER" \
+            -f repo="$REPO_NAME" \
+            -F number="$ISSUE_NUMBER")
+
+          ITEM_ID=$(echo "$ITEMS" |
+            jq -r \
+            --arg PROJECT_ID "$PROJECT_ID" \
+            '
+              .data.repository.issue.projectItems.nodes[]
+              | select(.project.id == $PROJECT_ID)
+              | .id
+            ' |
+            head -n 1)
+
+          if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
+            echo "ERROR: Issue is not in the project."
+            exit 1
+          fi
+
+          echo "Project item: $ITEM_ID"
+
+          MUTATION='
+          mutation(
+            $project:ID!,
+            $item:ID!,
+            $field:ID!,
+            $option:String!
+          ) {
+            updateProjectV2ItemFieldValue(
+              input: {
+                projectId:$project
+                itemId:$item
+                fieldId:$field
+                value: {
+                  singleSelectOptionId:$option
+                }
+              }
+            ) {
+              projectV2Item {
+                id
+              }
+            }
+          }'
+
+          gh api graphql \
+            -f query="$MUTATION" \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$STATUS_FIELD_ID" \
+            -f option="$IN_PROGRESS_ID"
+
+          echo "SUCCESS: Issue moved to In Progress."
+
+
+  # ==========================================================
+  # 2. PR CREATED
+  #
+  # PR opened
+  #       ↓
+  # Status = Test
+  # ==========================================================
+
+  pull-request-opened:
+    if: >
+      github.event_name == 'pull_request' &&
+      (
+        github.event.action == 'opened' ||
+        github.event.action == 'reopened' ||
+        github.event.action == 'ready_for_review'
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Move issue to Test
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+
+          if [[ "$BRANCH" =~ ^feature/([0-9]+)- ]]; then
+            ISSUE_NUMBER="${BASH_REMATCH[1]}"
+          else
+            echo "Branch does not contain an issue number."
+            exit 1
+          fi
+
+          echo "Issue: #$ISSUE_NUMBER"
+
+          QUERY='
+          query($login:String!, $number:Int!) {
+            user(login:$login) {
+              projectV2(number:$number) {
+                id
+                fields(first:100) {
+                  nodes {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      name
+                      options {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          RESULT=$(gh api graphql \
+            -f query="$QUERY" \
+            -f login="$PROJECT_OWNER" \
+            -F number="$PROJECT_NUMBER")
+
+          PROJECT_ID=$(echo "$RESULT" |
+            jq -r '.data.user.projectV2.id')
+
+          STATUS_FIELD_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Status")
+              | .id
+            ')
+
+          TEST_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Status")
+              | .options[]
+              | select(.name == "Test")
+              | .id
+            ')
+
+          ITEM_QUERY='
+          query($owner:String!, $repo:String!, $number:Int!) {
+            repository(owner:$owner, name:$repo) {
+              issue(number:$number) {
+                projectItems(first:100) {
+                  nodes {
+                    id
+                    project {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          ITEMS=$(gh api graphql \
+            -f query="$ITEM_QUERY" \
+            -f owner="$REPO_OWNER" \
+            -f repo="$REPO_NAME" \
+            -F number="$ISSUE_NUMBER")
+
+          ITEM_ID=$(echo "$ITEMS" |
+            jq -r \
+            --arg PROJECT_ID "$PROJECT_ID" \
+            '
+              .data.repository.issue.projectItems.nodes[]
+              | select(.project.id == $PROJECT_ID)
+              | .id
+            ' |
+            head -n 1)
+
+          if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
+            echo "ERROR: Issue is not in project."
+            exit 1
+          fi
+
+          MUTATION='
+          mutation(
+            $project:ID!,
+            $item:ID!,
+            $field:ID!,
+            $option:String!
+          ) {
+            updateProjectV2ItemFieldValue(
+              input: {
+                projectId:$project
+                itemId:$item
+                fieldId:$field
+                value: {
+                  singleSelectOptionId:$option
+                }
+              }
+            ) {
+              projectV2Item {
+                id
+              }
+            }
+          }'
+
+          gh api graphql \
+            -f query="$MUTATION" \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$STATUS_FIELD_ID" \
+            -f option="$TEST_ID"
+
+          echo "SUCCESS: Issue moved to Test."
+
+
+  # ==========================================================
+  # 3. REVIEW APPROVED
+  #
+  # Someone other than PR author approves
+  #       ↓
+  # Tested by = reviewer
+  # ==========================================================
+
+  review-approved:
+    if: >
+      github.event_name == 'pull_request_review' &&
+      github.event.action == 'submitted' &&
+      github.event.review.state == 'approved' &&
+      github.event.review.user.login != github.event.pull_request.user.login
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Record tester
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          TESTER: ${{ github.event.review.user.login }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+
+          if [[ "$BRANCH" =~ ^feature/([0-9]+)- ]]; then
+            ISSUE_NUMBER="${BASH_REMATCH[1]}"
+          else
+            echo "Branch does not contain issue number."
+            exit 1
+          fi
+
+          echo "Issue: #$ISSUE_NUMBER"
+          echo "Tester: $TESTER"
+
+          QUERY='
+          query($login:String!, $number:Int!) {
+            user(login:$login) {
+              projectV2(number:$number) {
+                id
+                fields(first:100) {
+                  nodes {
+                    ... on ProjectV2Field {
+                      id
+                      name
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          RESULT=$(gh api graphql \
+            -f query="$QUERY" \
+            -f login="$PROJECT_OWNER" \
+            -F number="$PROJECT_NUMBER")
+
+          PROJECT_ID=$(echo "$RESULT" |
+            jq -r '.data.user.projectV2.id')
+
+          TESTED_BY_FIELD_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Tested by")
+              | .id
+            ')
+
+          if [ -z "$TESTED_BY_FIELD_ID" ] ||
+             [ "$TESTED_BY_FIELD_ID" = "null" ]; then
+            echo "ERROR: Tested by field not found."
+            exit 1
+          fi
+
+          ITEM_QUERY='
+          query($owner:String!, $repo:String!, $number:Int!) {
+            repository(owner:$owner, name:$repo) {
+              issue(number:$number) {
+                projectItems(first:100) {
+                  nodes {
+                    id
+                    project {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          ITEMS=$(gh api graphql \
+            -f query="$ITEM_QUERY" \
+            -f owner="$REPO_OWNER" \
+            -f repo="$REPO_NAME" \
+            -F number="$ISSUE_NUMBER")
+
+          ITEM_ID=$(echo "$ITEMS" |
+            jq -r \
+            --arg PROJECT_ID "$PROJECT_ID" \
+            '
+              .data.repository.issue.projectItems.nodes[]
+              | select(.project.id == $PROJECT_ID)
+              | .id
+            ' |
+            head -n 1)
+
+          if [ -z "$ITEM_ID" ] ||
+             [ "$ITEM_ID" = "null" ]; then
+            echo "ERROR: Issue not found in project."
+            exit 1
+          fi
+
+          MUTATION='
+          mutation(
+            $project:ID!,
+            $item:ID!,
+            $field:ID!,
+            $text:String!
+          ) {
+            updateProjectV2ItemFieldValue(
+              input: {
+                projectId:$project
+                itemId:$item
+                fieldId:$field
+                value: {
+                  text:$text
+                }
+              }
+            ) {
+              projectV2Item {
+                id
+              }
+            }
+          }'
+
+          gh api graphql \
+            -f query="$MUTATION" \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$TESTED_BY_FIELD_ID" \
+            -f text="$TESTER"
+
+          echo "SUCCESS: Tested by $TESTER."
+
+
+  # ==========================================================
+  # 4. PR MERGED
+  #
+  # PR actually merged
+  #       ↓
+  # Status = Done
+  # ==========================================================
+
+  pull-request-merged:
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Move issue to Done
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+
+          if [[ "$BRANCH" =~ ^feature/([0-9]+)- ]]; then
+            ISSUE_NUMBER="${BASH_REMATCH[1]}"
+          else
+            echo "Branch does not contain issue number."
+            exit 1
+          fi
+
+          echo "Issue: #$ISSUE_NUMBER"
+
+          QUERY='
+          query($login:String!, $number:Int!) {
+            user(login:$login) {
+              projectV2(number:$number) {
+                id
+                fields(first:100) {
+                  nodes {
+                    ... on ProjectV2SingleSelectField {
+                      id
+                      name
+                      options {
+                        id
+                        name
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          RESULT=$(gh api graphql \
+            -f query="$QUERY" \
+            -f login="$PROJECT_OWNER" \
+            -F number="$PROJECT_NUMBER")
+
+          PROJECT_ID=$(echo "$RESULT" |
+            jq -r '.data.user.projectV2.id')
+
+          STATUS_FIELD_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Status")
+              | .id
+            ')
+
+          DONE_ID=$(echo "$RESULT" |
+            jq -r '
+              .data.user.projectV2.fields.nodes[]
+              | select(.name == "Status")
+              | .options[]
+              | select(.name == "Done")
+              | .id
+            ')
+
+          ITEM_QUERY='
+          query($owner:String!, $repo:String!, $number:Int!) {
+            repository(owner:$owner, name:$repo) {
+              issue(number:$number) {
+                projectItems(first:100) {
+                  nodes {
+                    id
+                    project {
+                      id
+                    }
+                  }
+                }
+              }
+            }
+          }'
+
+          ITEMS=$(gh api graphql \
+            -f query="$ITEM_QUERY" \
+            -f owner="$REPO_OWNER" \
+            -f repo="$REPO_NAME" \
+            -F number="$ISSUE_NUMBER")
+
+          ITEM_ID=$(echo "$ITEMS" |
+            jq -r \
+            --arg PROJECT_ID "$PROJECT_ID" \
+            '
+              .data.repository.issue.projectItems.nodes[]
+              | select(.project.id == $PROJECT_ID)
+              | .id
+            ' |
+            head -n 1)
+
+          if [ -z "$ITEM_ID" ] ||
+             [ "$ITEM_ID" = "null" ]; then
+            echo "ERROR: Issue not found in project."
+            exit 1
+          fi
+
+          MUTATION='
+          mutation(
+            $project:ID!,
+            $item:ID!,
+            $field:ID!,
+            $option:String!
+          ) {
+            updateProjectV2ItemFieldValue(
+              input: {
+                projectId:$project
+                itemId:$item
+                fieldId:$field
+                value: {
+                  singleSelectOptionId:$option
+                }
+              }
+            ) {
+              projectV2Item {
+                id
+              }
+            }
+          }'
+
+          gh api graphql \
+            -f query="$MUTATION" \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$STATUS_FIELD_ID" \
+            -f option="$DONE_ID"
+
+          echo "SUCCESS: Issue moved to Done."
