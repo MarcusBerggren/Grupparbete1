@@ -1,6 +1,7 @@
-console.log("JavaScript Hoppas jag fungerar!");
-console.log("Här är mina grejjer!");
-const button = document.querySelector("#myButton"); 
-button.addEventListener("click", () => { 
-coonsole.log("Buttons clicked!"); 
-});
+let minArray = ["start","Äpple", "Banan", "Apelsin"];
+console.log(minArray);
+
+function remove_marked_object(index, count) {
+    minArray.splice(index, 1);
+    console.log(minArray);
+}
