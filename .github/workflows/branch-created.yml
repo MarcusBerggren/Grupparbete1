@@ -72,6 +72,17 @@ jobs:
             --repo "$REPO" \
             --add-assignee "$ACTOR"
 
+      - name: Test project token
+        env:
+          PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          if [ -z "$PROJECT_TOKEN" ]; then
+            echo "ERROR: PROJECT_TOKEN is empty or unavailable."
+            exit 1
+          fi
+
+          echo "PROJECT_TOKEN is available."
+
       - name: Move issue to In Progress
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
