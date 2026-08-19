@@ -9,23 +9,28 @@
 <body>
 
     <header>
-        <p>Header ligger här</p>
+        <p>To-Do App.</p>
     </header>
 
     <nav>
         <p>Nav ligger här</p>
     </nav>
 
-    <h1>Rubrik</h1>
+    <h1>To-Do list</h1>
 
     <!-- ### Listan med objekt ### -->
 
     <p>Här lägger vi en lista som visar alla objekt i vår array</p>
+        <ul id="taskList"></ul>
+
     <p>Arrayen döper vi till X</p>
     <p>Byt ut paragrafen mot den kod som behöv för att visa listan av objekt i arrayen</p>
 
+    <form>
     <!-- ### Knappar för att lägga till, ändra status och ta bort objekt ### -->
-    <p>Vi behöver ett antal knappar som vi lägger under listan</p>
+    <p>Vi behöver ett antal knappar som vi lägger under listan </p>
+    
+
     <p>Byt ut resp paragraf till den kod som behövs för resp. knapp</p>
     <p>Knapp för att lägga till objekt</p>
     <p>Knapp för att ändra status på objekt</p>
@@ -33,7 +38,7 @@
 
     <!-- ### Filtrering av lista ### -->
     <p>Vi behöver även en möjlighet att filtrera listan. Vart lägger vi den?</p>
-
+    </form>
 
     <script src="script.js"></script>
 
@@ -44,3 +49,39 @@
 
 
 </html>
+
+
+
+
+
+
+
+<!-- Sebbe kodskräp
+
+const knappar = 
+    document.querySelectorAll(".aside-knappar button"); 
+ 
+const resultatet = 
+    document.getElementById("resultatet"); 
+console.log(resultatet); 
+resultatet.innerHTML = ""; 
+ 
+for (let i = 0; i < knappar.length; i++) { 
+ 
+    resultatet.innerHTML += 
+        "<h2>" + 
+        knappar[i].textContent + 
+        "</h2>"; 
+ 
+}
+
+
+
+
+
+<input type="text" id="namn"></form><form action="/spara" method="post">
+        <input type="text" name="namn">
+        <button type="submit">Skicka
+        </button>
+        </form>
+-->
