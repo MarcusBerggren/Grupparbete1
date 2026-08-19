@@ -1,22 +1,27 @@
-// Arrayen som kommer att hålla alla uppgifter
-let tasks = [];
+// 1. Hämta sparade tasks från localStorage ELLER starta med en tom array []
+let tasks = JSON.parse(localStorage.getItem('savedTasks')) || [];
 
 // Hämta HTML-element
 const taskInput = document.getElementById('taskInput');
 const addTaskBtn = document.getElementById('addTaskBtn');
 const taskList = document.getElementById('taskList');
 
-console.log("Skriptet har laddats. Tom 'tasks'-array initierad:", tasks);
+// 2. Funktion för att spara tasks till localStorage
+function saveToLocalStorage() {
+  // localStorage kan bara spara text, så vi omvandlar arrayen med JSON.stringify
+  localStorage.setItem('savedTasks', JSON.stringify(tasks));
+  console.log("Sparade tasks till localStorage:", tasks);
+}
 
 // Funktion för att rita ut listan i HTML
 function renderTasks() {
   console.log("renderTasks() körs. Antal uppgifter att rita ut:", tasks.length);
-  taskList.innerHTML = ''; // Rensa listan innan vi ritar om
+  taskList.innerHTML = ''; 
 
   tasks.forEach(task => {
     const li = document.createElement('li');
     li.textContent = task.text;
-    li.dataset.id = task.id; // Sparar ID på elementet för framtida funktioner
+    li.dataset.id = task.id; 
 
     if (task.completed) {
       li.classList.add('completed');
@@ -26,37 +31,31 @@ function renderTasks() {
   });
 }
 
-// Funktion för att lägga till en ny uppgift i arrayen
+// Funktion för att lägga till en ny uppgift
 function addTask() {
   const taskText = taskInput.value.trim();
 
-  console.log("addTask() anropades. Inskriven text:", taskText);
-
-  // Avbryt om fältet är tomt
   if (taskText === '') {
-    console.warn("Avbröt: Inputfältet var tomt.");
     alert('Skriv in en text för uppgiften!');
     return;
   }
 
-  // Skapa nytt objekt
   const newTask = {
-    id: Date.now(),      // Genererar ett unikt ID baserat på tidsstämpel
+    id: Date.now(),
     text: taskText,
-    completed: false     // Standardstatus när uppgiften skapas
+    completed: false
   };
 
-  console.log("Nytt objekt skapat:", newTask);
-
-  // Lägg till i arrayen 'tasks'
   tasks.push(newTask);
 
-  console.log("Uppdaterad 'tasks'-array:", tasks);
-
-  // Rensa inputfältet och uppdatera listan på skärmen
+  // SPARA OCH RITA OM
+  saveToLocalStorage(); // <--- Spara till localStorage varje gång en task läggs till
   taskInput.value = '';
   renderTasks();
 }
 
 // Event listener för knappen
 addTaskBtn.addEventListener('click', addTask);
+
+// 3. Rita ut eventuella sparade uppgifter direkt när sidan laddas
+renderTasks();
