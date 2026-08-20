@@ -1,3 +1,4 @@
+
 // 1. Hämta sparade tasks från localStorage ELLER starta med en tom array []
 let tasks = JSON.parse(localStorage.getItem('savedTasks')) || [];
 
@@ -16,18 +17,51 @@ function saveToLocalStorage() {
 // Funktion för att rita ut listan i HTML
 function renderTasks() {
   console.log("renderTasks() körs. Antal uppgifter att rita ut:", tasks.length);
-  taskList.innerHTML = ''; 
+  taskList.innerHTML = '';
 
-  tasks.forEach(task => {
-    const li = document.createElement('li');
-    li.textContent = task.text;
-    li.dataset.id = task.id; 
+  tasks.forEach(item => {
+    /* Skapar upp en tillfällig lista. Detta 
+       Detta kan ersättas med den riktiga listan sedan */
+    /* ---------------------------------------------------------- */
+    const li = document.createElement("li");
 
-    if (task.completed) {
-      li.classList.add('completed');
-    }
+    li.textContent = item.text;
+    li.classList.add(item.completed ? "completed" : "not-completed");
+    li.setAttribute("data-id", item.id);
+    /* ---------------------------------------------------------- */
 
-    taskList.appendChild(li);
+    /* ---------------------------------------------------------- */
+    /* Skapar Klar-knapp på varje rad. */
+    const completeButton = document.createElement("button");
+    completeButton.textContent = "Klar";
+
+    /* Här kommer Delete-knapp på varje rad. */
+
+
+    /* Lägger till knapparna i listan */
+    li.appendChild(completeButton);
+    /* Deleteknappen här */
+
+
+    /* Lägger till listan i HTML: en */
+    document.querySelector("#taskList").appendChild(li);
+
+    /* Visar uppgiften som klar i konsolen */
+    console.log(item.id + " - " + item.text + " - " + item.completed);
+
+    /* Lyssnare som känner av vilken knapp som tryckts på och skriver ut i 
+       konsolen vilken uppgift som är klar. */
+
+    completeButton.addEventListener("click", function () {
+
+      /* Skriver ut vilket ID som är klart */
+      console.log("Uppgiften med ID " + item.id + " är klar nu!");
+      /* Ändrar completed till true för rätt ID*/
+      item.completed = true;
+      /* Skriver ut objektet från arrayen i konsolen */
+      console.log(item.id + " - " + item.text + " - " + item.completed);
+    });
+    /* ---------------------------------------------------------- */
   });
 }
 
